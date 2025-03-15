@@ -530,6 +530,11 @@ def compute_solution(x_min, x_max, n_cells, epsilon, u, f, artificial_diffusion 
 	F[0] = 0 # The boundary condition at x=0 is phi(0) = 0
 	F[-1] = 1 # The boundary condition at x=L is phi(L) = 1
 
+	# Due to overlap between the nth and n+1th basis functions do we need to adjust the right hand side of the equation
+	# The RHS for the last non-boundary cell is given by
+	# \int_{x_n}^{x_n+1} B_n f dx - u\int_{x_n}^{x_n+1} B_n dB_{n+1}/dx dx + \epsilon \int_{x_n}^{x_n+1} dB_{n}/dx dx dB_{n+1}/dx dx  
+	# F[-2] += -u/2 + epsilon/(vertices[-1]-vertices[-2])
+
 	# Solve the system
 	phi_h = scipy.sparse.linalg.spsolve(A_global, F)
 
@@ -544,28 +549,40 @@ if __name__ == "__main__":
 	
 	u = 1 # The velocity of the flow 
 
-	
-	f = lambda x : numpy.zeros_like(x) # The right hand side of the equation
-	# f = lambda x : numpy.array(list(map( lambda y : (1-y) if y < 1.5 else min(y-2, 0), x)))
+	# Define the right hand side of the equation
+	# solution 0 : use f = 0
+	# solution = 1 : use f as shown in the assignment
+	solution = 0
+
+
+	if solution == 0:
+		f = lambda x : numpy.zeros_like(x) # The right hand side of the equation
+	elif solution == 1:
+		f = lambda x : numpy.array(list(map( lambda y : (1-y) if y < 1.5 else min(y-2, 0), x)))
 
 	plt.figure()
-	styles = ['-', '--', '-.']
-	colors = ['r', 'k', 'g']
 	for idx, epsilon in enumerate([1, 0.1, 0.01]):
-		vertices, phi_h = compute_solution(x_min, x_max, n_cells, epsilon, u, f, artificial_diffusion = True)
+		vertices, phi_h = compute_solution(x_min, x_max, n_cells, epsilon, u, f, artificial_diffusion = False)
+		vertices, phi_h_artificial = compute_solution(x_min, x_max, n_cells, epsilon, u, f, artificial_diffusion = True)
 	
 		# Short hand for the ratio between the velocity and the diffussion coefficient
 		gamma = u/epsilon 
 
 		# Define and calculate the exact solution
-		phi = lambda x : (1 - numpy.exp(gamma*x))/(1-numpy.exp(gamma*x_max))
-		x_exact_plot = numpy.linspace(x_min, x_max, 1001)
-		phi_exact = phi(x_exact_plot)
+		if solution == 0:
+			x_exact_plot = numpy.linspace(x_min, x_max, 1001)
+			phi = lambda x : (1 - numpy.exp(gamma*x))/(1-numpy.exp(gamma*x_max))
+			phi_exact = phi(x_exact_plot)
+		elif solution == 1:
+			vertices_exact, phi_exact =  compute_solution(x_min, x_max, 1000, epsilon, u, f, artificial_diffusion = False)
+			x_exact_plot = vertices_exact
 
 		# Plot the numerical solution and the exact solution for comparison
-		plt.plot(x_exact_plot, phi_exact, colors[idx] +'-', label=r'$\phi_{\mathrm{exact}}$')
-		plt.plot(vertices, phi_h, colors[idx]+'--', label=r'$\phi_{h}$')
-
-	plt.legend()	
-	plt.show()
+		plt.plot(x_exact_plot, phi_exact,'k-', label=r'$\phi_{\mathrm{exact}}$')
+		plt.plot(vertices, phi_h, 'b-.', label=r'$\phi_{h}$')
+		plt.plot(vertices, phi_h_artificial, 'r--', label=r'nodally exact $\phi_{h}$')
+		plt.title(f"Convection-Diffusion equation with $\\epsilon = {epsilon:.2f}$")
+		plt.legend()	
+		plt.savefig(f"type_{solution}_epsilon_{epsilon:.2f}_assignment1.png", dpi = 300)
+		plt.close()
 	

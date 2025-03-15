@@ -651,7 +651,7 @@ if __name__ == "__main__":
     x_max = 1.0
     y_min = 0.0
     y_max = 1.0
-    N = 100
+    N = 40
 
     n_cells_x = N
     n_cells_y = N
@@ -666,18 +666,15 @@ if __name__ == "__main__":
     vertices_even, phi_h_even = compute_solution(x_min, x_max, y_min, y_max, n_cells_x, n_cells_y, epsilon, u, f)
     vertices_odd, phi_h_odd = compute_solution(x_min, x_max, y_min, y_max, n_cells_x+1, n_cells_y+1, epsilon, u, f)
 
-    print(len(phi_h_even))
-    print(len(phi_h_odd))
-    # Plot the two even-odd solutions side by side
     # plt.figure()
     # plt.pcolormesh(vertices[:, 0].reshape(n_cells_y+1, n_cells_x+1), vertices[:, 1].reshape(n_cells_y+1, n_cells_x+1), phi_h.reshape(n_cells_y+1, n_cells_x+1))  # plot the error
     # plt.colorbar()
     # plt.title("phi_h")
     # plt.show()
 
-
+    # Show the even odd solutions side by side
     fig, ax = plt.subplots(1, 2, figsize=(12, 6))
-    ax[0].set_title('Even solution')
+    ax[0].set_title(f'Solution with N = {N}')
     im0 = ax[0].pcolormesh( vertices_even[:, 0].reshape(n_cells_y+1, n_cells_x+1), 
                             vertices_even[:, 1].reshape(n_cells_y+1, n_cells_x+1), 
                             phi_h_even.reshape(n_cells_y+1, n_cells_x+1))
@@ -685,11 +682,22 @@ if __name__ == "__main__":
     # ax[0].axvline(x=0.5, color='r', linestyle='--', linewidth=1.5)
     fig.colorbar(im0, ax=ax[0])
     
-    ax[1].set_title('Odd Solution')
+    ax[1].set_title(f'Solution with N = {N+1}')
     im1 = ax[1].pcolormesh( vertices_odd[:, 0].reshape(n_cells_y+2, n_cells_x+2), 
                             vertices_odd[:, 1].reshape(n_cells_y+2, n_cells_x+2), 
                             phi_h_odd.reshape(n_cells_y+2, n_cells_x+2))
     fig.colorbar(im1, ax=ax[1])
 
     # ax[1].axvline(x=0.5, color='r', linestyle='--', linewidth=1.5)
-    plt.show()
+    plt.savefig("approximation_assignment_2.png", dpi = 300)
+
+
+    # Calculate the solution on a fine mesh and plot
+    vertices_exact, phi_exact = compute_solution(x_min, x_max, y_min, y_max, 100, 100, epsilon, u, f)
+    plt.figure()
+    plt.pcolormesh( vertices_exact[:, 0].reshape(100+1, 100+1), 
+                    vertices_exact[:, 1].reshape(100+1, 100+1), 
+                    phi_exact.reshape(100+1, 100+1))  # plot the error
+    plt.colorbar()
+    plt.title("exact solution")
+    plt.savefig("exact_assignment_2.png", dpi=300)
