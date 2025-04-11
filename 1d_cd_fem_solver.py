@@ -243,7 +243,7 @@ def evaluate_function_d_dx(u, vertices, cells, n_points_per_cell = 2):
 def compute_local_convection_matrix():
 	r"""Computes the local convection matrix, for the reference cell [0, 1].
 
-	The local convectino matrix M_local is
+	The local convection matrix M_local is
 		M_local[i, j] = \int_{0}^{1} B_{i}(xi) dB_{j}(xi)/dx dxi
 	
 	With B_{i}(xi) the local basis function i over the reference cell.
@@ -423,7 +423,7 @@ def compute_global_diffusion_matrix(vertices, cells):
 
 	return N_global
 
-def compute_forcing_term(f, vertices, cells):
+def compute_forcing_term(f, vertices, cells, method, **kwargs):
 	r"""
 	Computes the forcing term, right hand side, for the mesh of vertices and cells.
 
@@ -451,18 +451,71 @@ def compute_forcing_term(f, vertices, cells):
 		The forcing term with F[j] ~= \int_{\Omega} f(x) B_{j}(x) dx
 	
 	"""
-	n_cells = cells.shape[0]
-	n_vertices = vertices.shape[0]
-	delta_x = numpy.diff(vertices[cells]).flatten()
+	if method == "standard":
+		n_cells = cells.shape[0]
+		n_vertices = vertices.shape[0]
+		delta_x = numpy.diff(vertices[cells]).flatten()
+	
+		F = numpy.zeros(n_vertices)
+		for cell_idx, cell in enumerate(cells):
+			f_at_cell_vertices = f(vertices[cell])
+			F[cell] += 0.5 * f_at_cell_vertices * delta_x[cell_idx]
 
-	F = numpy.zeros(n_vertices)
-	for cell_idx, cell in enumerate(cells):
-		f_at_cell_vertices = f(vertices[cell])
-		F[cell] += 0.5 * f_at_cell_vertices * delta_x[cell_idx]
+	elif method == "one point quadrature":
+		n_cells = cells.shape[0]
+		n_vertices = vertices.shape[0]
+		delta_x = numpy.diff(vertices[cells]).flatten()
+	
+		# Each element of the forcing term is given by
+		# F = \frac{\xi_{i-1}}{h_{i-1}} f_{i-1} + ( 1- \frac{\xi_{i}}{h_{i}} ) f_{i}
+		# This can be implemented as a matrix multiplication Af. Where A is given as
 
+		# A = \begin{pmatrix} 
+		#  1 & 0 & 0 & ... & 0 \\
+		# \frac{\xi_{i-1}}{h_{i-1}} & 1- \frac{\xi_{i}}{h_{i}} & 0 & ... & 0 \\
+		# 0 & \frac{\xi_{i}}{h_{i}} & 1- \frac{\xi_{i+1}}{h_{i+1}} & ... & 0 \\
+		# ...
+		# 0 & 0 & 0 & ... & 1 \\
+		# \end{pmatrix}
+
+		# Do not worry too much about the first and last row of A. These only compute F at the boundary,
+		# and that value for F gets fixed in the compute solution function.
+		h = (vertices[-1] - vertices[0])/(n_cells)
+		xi = kwargs.get('xi', h/2)
+
+		f = f(vertices + xi)
+
+		A = numpy.zeros((n_vertices, n_vertices))
+		A += numpy.diag(numpy.ones(n_vertices)*(1- xi/h))
+		A += numpy.diag(numpy.ones(n_vertices-1)*xi/h, -1)
+
+		A[0, 0] = 1.0
+		A[-1, -1] = 1.0
+		F = A @ f
+		F = h*F
+
+	elif method == "SUPG":
+		tau = kwargs.get('tau', -1)
+		assert tau != -1, "The SUPG method requires a value for tau"
+
+		n_cells = cells.shape[0]
+		n_vertices = vertices.shape[0]
+		delta_x = numpy.diff(vertices[cells]).flatten()
+		h = (vertices[-1] - vertices[0])/(n_cells)
+	
+		F = numpy.zeros(n_vertices)
+		for cell_idx, cell in enumerate(cells):
+			f_at_cell_vertices = f(vertices[cell])
+			F[cell] += 0.5 * f_at_cell_vertices * delta_x[cell_idx] + tau * 1/h * f_at_cell_vertices
+		
+		F = h*F
+	else:
+		raise ValueError(f"Unknown method {method} for the convection-diffusion equation")
+	
 	return F
 
-def compute_solution(x_min, x_max, n_cells, epsilon, u, f, artificial_diffusion = True):
+
+def compute_solution(x_min, x_max, n_cells, epsilon, u, f, method):
 	r"""
 	Computes the solution to the Bubnov-Galerkin approximation for the Convection-Diffusion equation
 		d(u\phi)/dx  - d/dx(epsilon d\phi/dx) = f
@@ -497,17 +550,43 @@ def compute_solution(x_min, x_max, n_cells, epsilon, u, f, artificial_diffusion 
 
 	"""
 
-	if artificial_diffusion:
-		# To make the solution nodally exact, we add artificial diffusion given by
-		# \bar{\epsilon} = Peclet*epsilon( \frac{\sinh(2Peclet)}{\cosh(2Peclet)-1} - \frac{1}{Peclet} )
-
-		Peclet = (x_max-x_min)/(n_cells)*(u)/(2*epsilon)  # The peclet number with characteristic length given by h = (x_max-x_min)/(n_cells), remember that n_vertices = n_cells +1
-		artificial_diffusion = Peclet*epsilon*( sinh(2*Peclet)/(cosh(2*Peclet)-1) - 1/Peclet)
-		epsilon = epsilon + artificial_diffusion
-
 	# Generate the mesh
 	vertices, cells = generate_mesh(x_min, x_max, n_cells)
 	
+	if method == "galerkin":
+		F = compute_forcing_term(f, vertices, cells, "standard")
+
+	elif method == "one point quadrature":
+		h = (x_max-x_min)/(n_cells)
+		Peclet = h*(u)/(2*epsilon)  # The peclet number with characteristic length given by h = (x_max-x_min)/(n_cells), remember that n_vertices = n_cells +1
+		artificial_diffusion = Peclet*epsilon*( sinh(2*Peclet)/(cosh(2*Peclet)-1) - 1/Peclet)
+		epsilon = epsilon + artificial_diffusion
+
+		xi =((artificial_diffusion)/u - h/2)
+		F = compute_forcing_term(f, vertices, cells, "one point quadrature", xi = xi)
+
+	elif method == "artificial diffusion":
+		h = (x_max-x_min)/(n_cells)
+		Peclet = h*(u)/(2*epsilon)  # The peclet number with characteristic length given by h = (x_max-x_min)/(n_cells), remember that n_vertices = n_cells +1
+		artificial_diffusion = Peclet*epsilon*( sinh(2*Peclet)/(cosh(2*Peclet)-1) - 1/Peclet)
+		epsilon = epsilon + artificial_diffusion
+
+		xi =((artificial_diffusion)/u - h/2)
+		F = compute_forcing_term(f, vertices, cells, "standard")
+
+	elif method == "SUPG":
+		h = (x_max-x_min)/(n_cells)
+		Peclet = h*(u)/(2*epsilon)  # The peclet number with characteristic length given by h = (x_max-x_min)/(n_cells), remember that n_vertices = n_cells +1
+		artificial_diffusion = Peclet*epsilon*( sinh(2*Peclet)/(cosh(2*Peclet)-1) - 1/Peclet)
+		epsilon = epsilon + artificial_diffusion
+
+		tau = artificial_diffusion/(u**2)
+
+		F = compute_forcing_term(f, vertices, cells, "SUPG", tau = tau)
+
+	else:
+		raise ValueError(f"Unknown method {method} for the convection-diffusion equation")
+
 	# Compute global convection matrix
 	M_global = compute_global_convection_matrix(vertices, cells)
 	M_global.toarray()
@@ -515,12 +594,11 @@ def compute_solution(x_min, x_max, n_cells, epsilon, u, f, artificial_diffusion 
 	# Compute global diffusion matrix
 	N_global = compute_global_diffusion_matrix(vertices, cells)
 	N_global.toarray()
-	
 
 	A_global = u*M_global+ epsilon*N_global
 
 	# Compute the right hand side
-	F = compute_forcing_term(f, vertices, cells)
+	
 
 	# Include the boundary conditions
 	A_global[0, :] = 0.0
@@ -535,16 +613,16 @@ def compute_solution(x_min, x_max, n_cells, epsilon, u, f, artificial_diffusion 
 	# \int_{x_n}^{x_n+1} B_n f dx - u\int_{x_n}^{x_n+1} B_n dB_{n+1}/dx dx + \epsilon \int_{x_n}^{x_n+1} dB_{n}/dx dx dB_{n+1}/dx dx  
 	# F[-2] += -u/2 + epsilon/(vertices[-1]-vertices[-2])
 
+	A_global = A_global
 	# Solve the system
 	phi_h = scipy.sparse.linalg.spsolve(A_global, F)
 
 	return vertices, phi_h	
 
-
 if __name__ == "__main__":
 	x_min = 0.0
 	x_max = 4.0
-	n_cells = 14
+	n_cells = 19
 	n_points_per_cell = 2  # since the bases are linear, we just need to evaluate them at two points on each cell
 	
 	u = 1 # The velocity of the flow 
@@ -552,37 +630,39 @@ if __name__ == "__main__":
 	# Define the right hand side of the equation
 	# solution 0 : use f = 0
 	# solution = 1 : use f as shown in the assignment
-	solution = 0
+	solution = 1
 
 
 	if solution == 0:
 		f = lambda x : numpy.zeros_like(x) # The right hand side of the equation
 	elif solution == 1:
 		f = lambda x : numpy.array(list(map( lambda y : (1-y) if y < 1.5 else min(y-2, 0), x)))
-
-	plt.figure()
-	for idx, epsilon in enumerate([1, 0.1, 0.01]):
-		vertices, phi_h = compute_solution(x_min, x_max, n_cells, epsilon, u, f, artificial_diffusion = False)
-		vertices, phi_h_artificial = compute_solution(x_min, x_max, n_cells, epsilon, u, f, artificial_diffusion = True)
 	
+	plt.figure()
+
+	for idx, epsilon in enumerate([1, 0.1, 0.01]):
+		vertices, phi_SUPG = compute_solution(x_min, x_max, n_cells, epsilon, u, f, "SUPG")
+		vertices, phi_one_point = compute_solution(x_min, x_max, n_cells, epsilon, u, f, "one point quadrature")
+		vertices, phi_galerkin = compute_solution(x_min, x_max, n_cells, epsilon, u, f, "galerkin")
+		
 		# Short hand for the ratio between the velocity and the diffussion coefficient
 		gamma = u/epsilon 
-
+		
 		# Define and calculate the exact solution
 		if solution == 0:
-			x_exact_plot = numpy.linspace(x_min, x_max, 1001)
+			vertices_exact = numpy.linspace(x_min, x_max, 1001)
 			phi = lambda x : (1 - numpy.exp(gamma*x))/(1-numpy.exp(gamma*x_max))
-			phi_exact = phi(x_exact_plot)
-		elif solution == 1:
-			vertices_exact, phi_exact =  compute_solution(x_min, x_max, 1000, epsilon, u, f, artificial_diffusion = False)
-			x_exact_plot = vertices_exact
+			phi_exact = phi(vertices_exact)
 
+		elif solution == 1:
+			vertices_exact, phi_exact =  compute_solution(x_min, x_max, 1000, epsilon, u, f, "galerkin")
+			
 		# Plot the numerical solution and the exact solution for comparison
-		plt.plot(x_exact_plot, phi_exact,'k-', label=r'$\phi_{\mathrm{exact}}$')
-		plt.plot(vertices, phi_h, 'b-.', label=r'$\phi_{h}$')
-		plt.plot(vertices, phi_h_artificial, 'r--', label=r'nodally exact $\phi_{h}$')
+		plt.plot(vertices_exact, phi_exact,'k-', label=r'$\phi_{\mathrm{exact}}$')
+		plt.plot(vertices, phi_SUPG, 'b--', label=r'SUPG')
+		plt.plot(vertices, phi_one_point, 'r-.', label=r'One point quadrature')
+		plt.plot(vertices, phi_galerkin, 'g:', label=r'Galerkin')
 		plt.title(f"Convection-Diffusion equation with $\\epsilon = {epsilon:.2f}$")
 		plt.legend()	
-		plt.savefig(f"type_{solution}_epsilon_{epsilon:.2f}_assignment1.png", dpi = 300)
+		plt.savefig(f"results/assignment_1_2_image{3*solution + idx}.png", dpi = 300)
 		plt.close()
-	
