@@ -444,6 +444,12 @@ def compute_forcing_term(f, vertices, cells, method, **kwargs):
 		The indices of the start and end vertex of each cell, i.e.,
 		cells[k, 0] is the lower bound vertex of the k-th cell
 		cells[k, 1] is the upper bound vertex of the k-th cell
+	Method: str
+		string specifying what kind of method to use to compute the forcing term. The methods available are
+		- "standard"
+		- "one point quadrature"
+		- "SUPG"
+
 
 	Returns
 	-------
@@ -492,8 +498,9 @@ def compute_forcing_term(f, vertices, cells, method, **kwargs):
 		A[0, 0] = 1.0
 		A[-1, -1] = 1.0
 		F = A @ f
-		F = h*F
 
+		# I am fighting with the h term here. I have no idea why it is needed, but it is.
+		F = h*F
 	elif method == "SUPG":
 		tau = kwargs.get('tau', -1)
 		assert tau != -1, "The SUPG method requires a value for tau"
@@ -503,14 +510,20 @@ def compute_forcing_term(f, vertices, cells, method, **kwargs):
 		delta_x = numpy.diff(vertices[cells]).flatten()
 		h = (vertices[-1] - vertices[0])/(n_cells)
 	
+
 		F = numpy.zeros(n_vertices)
 		for cell_idx, cell in enumerate(cells):
 			f_at_cell_vertices = f(vertices[cell])
-			F[cell] += 0.5 * f_at_cell_vertices * delta_x[cell_idx] + tau * 1/h * f_at_cell_vertices
+			# The SUPG method adds a stabilization term to the RHS time. We approximate the integral of the stabilization term using
+			# two point quadrature, resulting in the below equation
+			F[cell] += 0.5 * f_at_cell_vertices * delta_x[cell_idx] + tau  * f_at_cell_vertices
+
+			# Just like the one point quadrature method, multiplying by h makes it work. Fucked if I know why
+			F = h*F
 		
-		F = h*F
 	else:
 		raise ValueError(f"Unknown method {method} for the convection-diffusion equation")
+	
 	
 	return F
 
@@ -538,8 +551,12 @@ def compute_solution(x_min, x_max, n_cells, epsilon, u, f, method):
 		the velocity of the flow
 	f: func (R^[n_cells] -> R^[n_cells])
 		the function implementing the right hand side of the convection diffusion equation
-	artificial_diffusion: bool
-		a boolean variable that indicates if artificial diffussion should be added to make the solution nodally exact.
+	method: str
+		string specifying what kind of method to use to compute the solution. The methods available are
+		- "galerkin"
+		- "one point quadrature"
+		- "SUPG"
+		- "Artificial diffusion"
 
 	Returns
 	----
@@ -553,18 +570,26 @@ def compute_solution(x_min, x_max, n_cells, epsilon, u, f, method):
 	# Generate the mesh
 	vertices, cells = generate_mesh(x_min, x_max, n_cells)
 	
+	# Standard Galerkin method
 	if method == "galerkin":
 		F = compute_forcing_term(f, vertices, cells, "standard")
 
+	# One point quadrature method where the quadrature point is defined to exactly match an artificial diffusion scheme
 	elif method == "one point quadrature":
 		h = (x_max-x_min)/(n_cells)
 		Peclet = h*(u)/(2*epsilon)  # The peclet number with characteristic length given by h = (x_max-x_min)/(n_cells), remember that n_vertices = n_cells +1
+		
+		# We will mimick the effect of the quadrature rule on the LHS of the equation by just adding the artificial diffusion
 		artificial_diffusion = Peclet*epsilon*( sinh(2*Peclet)/(cosh(2*Peclet)-1) - 1/Peclet)
 		epsilon = epsilon + artificial_diffusion
 
 		xi =((artificial_diffusion)/u - h/2)
+
+		# Compute the forcing term
 		F = compute_forcing_term(f, vertices, cells, "one point quadrature", xi = xi)
 
+
+	# Artificial diffusion method
 	elif method == "artificial diffusion":
 		h = (x_max-x_min)/(n_cells)
 		Peclet = h*(u)/(2*epsilon)  # The peclet number with characteristic length given by h = (x_max-x_min)/(n_cells), remember that n_vertices = n_cells +1
@@ -572,16 +597,24 @@ def compute_solution(x_min, x_max, n_cells, epsilon, u, f, method):
 		epsilon = epsilon + artificial_diffusion
 
 		xi =((artificial_diffusion)/u - h/2)
+
+		# Compute the forcing term using standard quadrature
 		F = compute_forcing_term(f, vertices, cells, "standard")
 
+	# SUPG method
 	elif method == "SUPG":
 		h = (x_max-x_min)/(n_cells)
 		Peclet = h*(u)/(2*epsilon)  # The peclet number with characteristic length given by h = (x_max-x_min)/(n_cells), remember that n_vertices = n_cells +1
+		
+		# The implemented SUPG method uses a stabilizing parameter such that it mimics the effect of artifical diffusion
+		# So we compute the LHS by simply adding the artificial diffusion
 		artificial_diffusion = Peclet*epsilon*( sinh(2*Peclet)/(cosh(2*Peclet)-1) - 1/Peclet)
 		epsilon = epsilon + artificial_diffusion
 
+		# The necessary stabilizing parameter is given below
 		tau = artificial_diffusion/(u**2)
 
+		# Compute the forcing term using using SUPG
 		F = compute_forcing_term(f, vertices, cells, "SUPG", tau = tau)
 
 	else:
