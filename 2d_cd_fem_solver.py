@@ -103,7 +103,7 @@ def generate_mesh_2D(x_min, x_max, y_min, y_max, n_cells_x, n_cells_y):
 
     return vertices, cells
 
-def compute_local_mass_matrix_1D():
+def compute_local_mass_matrix_1D(method):
     r""" Computes the local mass matrix for the reference cell [0,1]
 
     The local mass matrix L_matrix is
@@ -119,7 +119,11 @@ def compute_local_mass_matrix_1D():
 
     Parameters
     ----
-    None
+    method : str
+        We can choose between two different quadrature methods to calculate the integral of the local mass matrix
+            - trapezoidal: an integral \int_{a}^{b} f(x) dx = (b-a)/2 (f (a) + f(b))
+            - gauss : we approximate the integral as \int_{a}^{b} f(x) dx = (b-a) (f [(a + b)/2] )
+        we do not specify this for the other matrices as the above rules give the same results for both methods
 
     Returns
     ----
@@ -127,18 +131,27 @@ def compute_local_mass_matrix_1D():
         The local mass matrix (on the reference cell) with L_local = \int_{0}^{1} B_{i}(xi) B_{j}(xi) dxi
     """
 
-    # The local mass matrix is given by
-    #   L_{local} = <B_{i}, B_{j}> = \int_{0}^{1} B_{i}(xi) B_{j}(xi) dxi, i,j = 0,1
-    # we can approximate this with Gauss-Lobatto quadrature by
-    #   \int_{0}^{1} B_{i}(xi) B_{j}(xi) dxi ~= 0.5 * B_{i}(xi_{k})B_{j}(xi_{k}) + 0.5* B_{i}(xi_{k})B_{j}(xi_{k}), i,j = 0,1
-    # with x_{0} = 0.0, and x_{1} = 1.0. Given the expressions of the basis, we have that
-    #   B_{i}(x_{k}) = \delta_{ik}  the Kronecker-delta
-    # This allows us to further simplify this expression to
-    #   \int_{0}^{1} B_{i}(xi) B_{j}(xi) dxi ~= 0.5
+    if method == "trapezoidal":
+        # The local mass matrix is given by
+        #   L_{local} = <B_{i}, B_{j}> = \int_{0}^{1} B_{i}(xi) B_{j}(xi) dxi, i,j = 0,1
+        # we can approximate this with the trapezoidal rule by
+        #   \int_{0}^{1} B_{i}(xi) B_{j}(xi) dxi ~= 0.5 * B_{i}(xi_{k})B_{j}(xi_{k}) + 0.5* B_{i}(xi_{k})B_{j}(xi_{k}), i,j = 0,1
+        # with x_{0} = 0.0, and x_{1} = 1.0. Given the expressions of the basis, we have that
+        #   B_{i}(x_{k}) = \delta_{ik}  the Kronecker-delta
+        # This allows us to further simplify this expression to
+        #   \int_{0}^{1} B_{i}(xi) B_{j}(xi) dxi ~= 0.5
+    
+        L_local = numpy.zeros([2, 2])
+        L_local[0, 0] = 0.5
+        L_local[1, 1] = 0.5
 
-    L_local = numpy.zeros([2, 2])
-    L_local[0, 0] = 0.5
-    L_local[1, 1] = 0.5
+    if method == "gauss":
+        # we can approximate the local mass matrix with the one point gaussian quadrature rule by
+        #   \int_{0}^{1} B_{i}(xi) B_{j}(xi) dxi ~=  B_{i}(1/2)B_{j}(1/2)  i,j = 0,1
+        # Given the expressions of the basis, we have that
+        #   \int_{0}^{1} B_{i}(xi) B_{j}(xi) dxi ~= 1/4
+
+        L_local = numpy.ones([2,2])*1/4
     
     return L_local
 
@@ -160,7 +173,6 @@ def compute_local_convection_matrix_1D():
     ----------
     None
 
-    Returns
     -------
     M_local : numpy.array(float), size [2, 2]
         The local convection matrix (on the reference cell) with M_local[i, j] ~= \int_{0}^{1} B_{i}(xi) dB_{j}(xi)/dx dxi
@@ -168,8 +180,8 @@ def compute_local_convection_matrix_1D():
 
     # The local convection matrix is given by
     #   M_{local} = <B_{i}, dB_{j}/dx> = \int_{0}^{1} B_{i}(xi) dB_{j}(xi)/dx dxi, i,j = 0,1
-    # we can approximate this with Gauss-Lobatto quadrature by
-    #   \int_{0}^{1} B_{i}(xi) dB_{j}(xi)/dx dxi ~= 0.5 * B_{i}(xi_{k}) dB_{j}(xi_{k})\dx + 0.5* B_{i}(xi_{k}) dB_{j}(xi_{k})/dx, i,j = 0,1
+    # we can approximate this with the trapozoidal quadrature rule by
+    #   \int_{0}^{1} B_{i}(xi) dB_{j}(xi)/dx dxi ~= 0.5 * B_{i}(x_{0}) dB_{j}(x_{0}) + 0.5* B_{i}(x_{1}) dB_{j}(x_{1}), i,j = 0,1
     # with x_{0} = 0.0, and x_{1} = 1.0. Given the expressions of the basis, we have that
     #   B_{i}(x_{k}) = \delta_{ik}  the Kronecker-delta 
     #                               | -1 if j = 0
@@ -177,7 +189,7 @@ def compute_local_convection_matrix_1D():
     #                               | 1 if j = 1
     # This allows us to further simplify this expression to
     #   \int_{0}^{1} B_{i}(xi) dB_{j}(xi)/dxi dxi ~= | -0.5 if i = 0,1 and j = 0 
-    #                                                | 0.5 if i = 0.1  and j = 1
+    #                                                | 0.5 if i = 0,1  and j = 1
 
     M_local = numpy.zeros([2, 2])
     M_local[0, 0] = -0.5
@@ -274,7 +286,7 @@ def compute_local_convection_matrix_2D():
     """
     # Following the alogirithm described above, we compute the 1D local mass and convection matrices
     M_local_1D = compute_local_convection_matrix_1D()
-    L_local_1D = compute_local_mass_matrix_1D()
+    L_local_1D = compute_local_mass_matrix_1D("gauss")
 
     # Populate the 2D M_local matrix
         # Populate the 2D M_local matrix
@@ -342,7 +354,7 @@ def compute_local_diffusion_matrix_2D():
     """
 
     # Following the algorithm described above, we first compute the local 1D mass and diffusion matrices
-    M_local_1D = compute_local_mass_matrix_1D()
+    M_local_1D = compute_local_mass_matrix_1D("gauss")
     N_local_1D = compute_local_diffusion_matrix_1D()
 
     # Populate the 2D M_local matrix
@@ -361,11 +373,62 @@ def compute_local_diffusion_matrix_2D():
     
     return N_local
 
+def compute_local_stabilization_matrix_2D():
+    r"""
+    Compute the stabilization matrix which corresponds to the stabilization term used commonly in the SUPG method.
+    The stabilization term on the LHS looks like
+    \int_{x_{i}}^{x_{i+1}}  P(B_i,j) div(u phi_h - \epsilon \nabla \phi_h)
+    where P(w_h) = <u, \nabla B_i,j > and div refers to the divergence operator
+
+    
+    Parameters 
+    ---
+    None
+    ---
+    Returns
+    T_local : numpy.array(float), size [4,4,4]
+        The 4 components of the local stabilization matrix on the reference cell given by
+        T_local[0, r, s] = \int_{0}^{1} B_{i,x} B_{k,x} dx  \int _{0}^{1} B_{j} B_{l} dy for i, j, k,l = 0,1
+        T_local[1, r, s] = \int_{0}^{1} B_{i,x} B_{k} dx \int _{0}^{1} B_{j} B_{l,y} dy for i, j, k,l = 0,1
+        T_local[2, r, s] = \int_{0}^{1} B_{i} B_{k,x} dx \int _{0}^{1} B_{j,y} B_{l} dy for i, j, k,l = 0,1
+        T_local[3, r, s] = \int_{0}^{1} B_{i} B_{k} dx \int _{0}^{1} B_{j,y} B_{l,y} dy for i, j, k,l = 0,1
+
+        where r = i + 2*j
+        and   s = k + 2*l
+    ----
+    """
+
+    # We will compute the local stabilization matrix using a whole bunch of tensor products. So we will need all the local matrices
+    # As per the assignment, we will always use gauss for the mass matrix
+    Mass_matrix = compute_local_mass_matrix_1D("gauss")
+    Convection_matrix = compute_local_convection_matrix_1D()
+    Diffusion_matrix = compute_local_diffusion_matrix_1D()
+
+    # Populate the 2D T_local matrix
+    T_local = numpy.zeros([4, 4, 4])
+    for i in range(0, 2):
+        for j in range(0, 2):
+            for k in range(0, 2):
+                for l in range(0, 2):
+                    # Compute the linear indices of the basis
+                    r = i + 2*j
+                    s = k + 2*l
+
+                    # Compute the 2D inner product using a tensor product of the 1D ones
+                    T_local[0, r, s] = Diffusion_matrix[i, k] * Mass_matrix[j, l]
+                    T_local[1, r, s] = Convection_matrix[k, i] * Convection_matrix[j, l]
+                    T_local[2, r, s] = Convection_matrix[i, k] * Mass_matrix[l, j]
+                    T_local[3, r, s] = Mass_matrix[i, k] * Diffusion_matrix[j, l]
+
+    return T_local
+
+
+
 def compute_global_convection_matrix_2D(vertices, cells, u):
     r"""Computes the global convection matrix, for the 2D mesh of vertices and cells.
 
     The global convection matrix M_global is
-        M_local[i, j] = \int_{\Omega} \nabla*B_{i}(x, y) *B_{j}(x, y) dx dy
+    Returns
 
     With B_{i}(x, y) the global basis function i over the domain.
         
@@ -387,7 +450,7 @@ def compute_global_convection_matrix_2D(vertices, cells, u):
     -------
     M_global : numpy.array(float), size [n+1, n+1]
         The global convection matrix (on the whole domain) with
-        M_local[i, j] = \int_{\Omega} \nabla*B_{i}(x, y) *B_{j}(x, y) dx dy
+        M_local[i, j] = \int_{\Omega} \nabla*(u*B_{i}(x, y)) *B_{j}(x, y) dx dy
     """
 
     n_cells = cells.shape[0]
@@ -478,7 +541,83 @@ def compute_global_diffusion_matrix_2D(vertices, cells):
 
     return N_global
 
-def compute_forcing_term_2D(f, vertices, cells):
+def compute_global_stabilization_matrix_2D(vertices, cells, u, tau):
+    r"""Computes the global stabilization matrix, for the 2D mesh of vertices and cells.
+
+    The global stabilization matrix T_global is
+        T_global[i, j] = \int_{\Omega} \tau  P(B_{i}(x, y)) \nabla \cdot (u \phi - \epsilon \nabla \phi_h ) dxdy
+        and P(B_{i}(x,y)) = u \cdot B_{i}(x,y)
+    With P(B_{i}(x, y)) the global basis function i over the domain.
+        
+    Parameters
+    ----------
+    vertices : numpy.array(float), size [1, n+1]
+        The x-coordinates of the vertices of the mesh. The index in the array is
+        the index of the vertex, i.e., vertices[k] is the x-coordinate of the
+        k-th vertex of the mesh.
+    cells : numpy.array(int), size [2, n]
+        The indices of the start and end vertex of each cell, i.e.,
+        cells[k, 0] is the lower bound vertex of the k-th cell
+        cells[k, 1] is the upper bound vertex of the k-th cell
+
+    u : numpy array(float), size [2]
+        The velocity vector field. u[0] is in the x direction and u[1] is in the y direction
+
+    tau : float
+        The stabilization parameter
+
+    Returns
+    -------
+    T_global : numpy.array(float), size [n+1, n+1]
+        The global stabilization matrix (on the whole domain) with
+        T_global[i, j] ~= \int_{\Omega} P(B_{i}(x, y)) \cdot P(B_{j}(x, y)) dxdy
+    """
+
+    n_cells = cells.shape[0]
+    n_vertices = vertices.shape[0]
+    delta_x = (vertices[cells[:, 1], 0] - vertices[cells[:, 0], 0]).flatten()
+    delta_y = (vertices[cells[:, 2], 1] - vertices[cells[:, 0], 1]).flatten()
+    
+    T_row_idx = numpy.zeros([n_cells, 4, 4])
+    T_col_idx = numpy.zeros([n_cells, 4, 4]) 
+    T_data = numpy.zeros([n_cells, 4, 4])
+
+    T_local = compute_local_stabilization_matrix_2D()
+
+    for cell_idx, cell in enumerate(cells):
+        col_idx, row_idx = numpy.meshgrid(cell, cell)
+        T_row_idx[cell_idx, :, :] = row_idx
+        T_col_idx[cell_idx, :, :] = col_idx
+
+        # Note: T_local contains the inner product between the B_k and its derivative, i.e.,
+        #    T_local = < u B_{k}, \nabla B_{l}>
+        # but, as we have seen, this is computed for the reference cell [0, 1] x [0, 1], not
+        # the cell we are looping over, which is [x_{i}, x_{j}] x [y_{r}, y_{s}] and has 
+        # lengths delta_x_{k} and delta_y_{l}.
+        # Therefore we need to scale each part of T_local matrix properly, given by the table below
+        #   Mass matrix: multiply by delta_x or delta_y 
+        #   convection matrix : do not scale
+        #   diffusion matrix : multiply by 1/delta_x or 1/delta_y
+        
+        # Furthermore, each term of T_local is multiplied by tau, so we need to include that
+        # and lastly, the different terms get scaled by u_1 and u_2 differently.
+        #   T_local[0, :, :] scale by u[0]**2
+        #   T_local[1, :, :] scale by u[0]*u[1]
+        #   T_local[2, :, :] scale by u[0]*u[1]
+        #   T_local[3, :, :] scale by u[1]**2
+
+        T_data[cell_idx, :, :] = tau * (
+            u[0]**2 * T_local[0] * delta_y[cell_idx]/delta_x[cell_idx] +
+            u[0]*u[1] * T_local[1] +
+            u[0]*u[1] * T_local[2] +
+            u[1]**2 * T_local[3] * delta_x[cell_idx]/delta_y[cell_idx]
+        )
+
+    T_global = scipy.sparse.csr_array((T_data.flatten(), (T_row_idx.flatten(), T_col_idx.flatten())), shape=(n_vertices, n_vertices) )
+
+    return T_global
+
+def compute_forcing_term_2D(f, vertices, cells, method):
     r"""Computes the forcing term, right hand side, for the 2D mesh of vertices and cells.
 
     The forcing term F is
@@ -501,6 +640,11 @@ def compute_forcing_term_2D(f, vertices, cells):
         cells[k, 2] is the upper left vertex of the k-th cell
         cells[k, 3] is the upper right vertex of the k-th cell
 
+    method : str
+        The method to use for the quadrature rule. Currently there are two options:
+            - 'trapezoidal': The trapezoidal rule. We approximate the integral as \int_{a}^{b} f(x) dx = (b-a)/2 (f(a) + f(b))
+            - 'gauss' : A one point gaussian quadrature rule. We approximate the integral as \int_{a}^{b} f(x) dx = (b-a) (f [(a + b)/2] )
+
     Returns
     -------
     F : numpy.array(float), size [n+1]
@@ -513,13 +657,17 @@ def compute_forcing_term_2D(f, vertices, cells):
     
 
     F = numpy.zeros(n_vertices)
-    for cell_idx, cell in enumerate(cells):
-        f_at_cell_vertices = f(vertices[cell])
-        F[cell] += 0.25 * f_at_cell_vertices * delta_x[cell_idx] * delta_y[cell_idx]
 
+    if method == "trapezoidal":
+        for cell_idx, cell in enumerate(cells):
+            f_at_cell_vertices = f(vertices[cell])
+            F[cell] += 0.25 * f_at_cell_vertices * delta_x[cell_idx] * delta_y[cell_idx]
+
+    elif method == "gauss":
+        raise NotImplementedError("Gaussian quadrature not implemented yet.")
     return F
 
-def compute_solution(x_min, x_max, y_min, y_max, n_cells_x, n_cells_y, epsilon, u, f):
+def compute_solution(x_min, x_max, y_min, y_max, n_cells_x, n_cells_y, epsilon, u, f, SUPG = False):
     r"""
     Computes the solution to the Bubnov-Galerkin approximation for the Convection-Diffusion equation
         
@@ -549,6 +697,9 @@ def compute_solution(x_min, x_max, y_min, y_max, n_cells_x, n_cells_y, epsilon, 
         the velocity of the flow
     f: func (R^n_cells -> R^{n_cells})
         the function implementing the right hand side of the convection diffusion equation
+    SUPG: bool
+        whether to use the SUPG method or not. Default is False, i.e., do not use SUPG
+        This adds a stabilization factor to the matrix
 
     Returns
     ----
@@ -565,9 +716,11 @@ def compute_solution(x_min, x_max, y_min, y_max, n_cells_x, n_cells_y, epsilon, 
     # Impose essential (Dirichlet) boundary conditions
     phi_left = 0.0
     phi_right = 0.0
-    phi_bottom = 0.0
+    phi_bottom = 1.0
     phi_top = 0.0
     
+
+
     # Generate the mesh
     vertices, cells = generate_mesh_2D(x_min, x_max, y_min, y_max, n_cells_x, n_cells_y)
 
@@ -580,13 +733,47 @@ def compute_solution(x_min, x_max, y_min, y_max, n_cells_x, n_cells_y, epsilon, 
     N_global.toarray()
     
 
-    # To be frank, I don't actually know why we construct the matrix via M_global - epsilon*N_global
-    # If I derived everything correctly it should be M_global + epsilon*N_global
-    # But that results in incorrect solutions. So we just add this and roll
-    A = M_global - epsilon*N_global
+    if SUPG:
+        # Tau should be given by tau = \bar{\epsilon}/(|u|^2)
+        #   Where \bar{\epsilon} = (\beta_1 u_1 + \beta_2 u_2) h/2
+        #   where again \beta_i = coth(Pe_h_i) - 1/Pe_h_i
+        #   and lastly Pe_h_i = u_1 h/(2 \epsilon)
+        #   where h is the average length of the cell
+        h = (x_max-x_min)/n_cells_x
+        Pe_h_1 = u[0]*h/(2*epsilon)
+        Pe_h_2 = u[1]*h/(2*epsilon)
+
+        # We use an approximation of the beta function to deal with large values of the peclet number
+        # We approximate beta as peclet/3 when peclet in [-3, 3]
+        # and otherwise as sign(peclet)
+        if Pe_h_1 < -3:
+            beta_1 = -1
+        elif Pe_h_1 > 3:
+            beta_1 = 1
+        else:
+            beta_1 = Pe_h_1/3
+
+        if Pe_h_2 < -3:
+            beta_2 = -1
+        elif Pe_h_2 > 3:
+            beta_2 = 1
+        else:
+            beta_2 = Pe_h_2/3
+        
+        tau = (beta_1*u[0] + beta_2*u[1]) * h/2
+
+        # Compute the stabilization matrix
+        T_global = compute_global_stabilization_matrix_2D(vertices, cells, u, tau)
+        T_global.toarray()
+
+        # Combine the convection and stabilization matrices to get the final matrix
+        A = M_global + epsilon*N_global + T_global
+    else:
+        # Combine the diffusion and global matrices to get the final matrix
+        A = M_global + epsilon*N_global
 
     # Compute the right hand side
-    F = compute_forcing_term_2D(f, vertices,  cells)
+    F = compute_forcing_term_2D(f, vertices,  cells, "trapezoidal")
 
     # Include the boundary conditions
     # Left boundary
@@ -596,7 +783,13 @@ def compute_solution(x_min, x_max, y_min, y_max, n_cells_x, n_cells_y, epsilon, 
     A[left_basis_indices, :] = 0.0
     for basis_idx in left_basis_indices:
         A[basis_idx, basis_idx] = 1.0
-        F[basis_idx] = phi_left  # note that phi_left is contant, if not, this needs to be changed
+
+        # we want to implement the boundary condition on the left hand that (0,y) for y in [0, y_max/5] is 1
+        # and everything else on this boundary is zero
+        if vertices[basis_idx, 1] < y_max/5.0:
+            F[basis_idx] = 1.0
+        else:
+            F[basis_idx] = phi_left  # note that phi_left is contant, if not, this needs to be changed
     
     # Right boundary
     i_idx = n_cells_x*numpy.ones(n_cells_y + 1, dtype=numpy.int64)
@@ -630,7 +823,6 @@ def compute_solution(x_min, x_max, y_min, y_max, n_cells_x, n_cells_y, epsilon, 
 
     return vertices, phi_h  
 
-
 if __name__ == "__main__":
 
     # Parameters to get the same plot as in the jupyter notebook
@@ -651,53 +843,47 @@ if __name__ == "__main__":
     x_max = 1.0
     y_min = 0.0
     y_max = 1.0
-    N = 40
+    N = 100
 
     n_cells_x = N
     n_cells_y = N
 
-    if N % 2 == 1:
-        print("N is odd, this means that the even and odd solutions should be interchanged.")
-
-    epsilon = 0.01
-    u = numpy.array([0.0, 1.0])
-    f = lambda points : numpy.array(list(map(lambda point : 1 if point[0] < 0.5 else -1, points)))
-
-    vertices_even, phi_h_even = compute_solution(x_min, x_max, y_min, y_max, n_cells_x, n_cells_y, epsilon, u, f)
-    vertices_odd, phi_h_odd = compute_solution(x_min, x_max, y_min, y_max, n_cells_x+1, n_cells_y+1, epsilon, u, f)
-
-    # plt.figure()
-    # plt.pcolormesh(vertices[:, 0].reshape(n_cells_y+1, n_cells_x+1), vertices[:, 1].reshape(n_cells_y+1, n_cells_x+1), phi_h.reshape(n_cells_y+1, n_cells_x+1))  # plot the error
-    # plt.colorbar()
-    # plt.title("phi_h")
-    # plt.show()
-
-    # Show the even odd solutions side by side
-    fig, ax = plt.subplots(1, 2, figsize=(12, 6))
-    ax[0].set_title(f'Solution with N = {N}')
-    im0 = ax[0].pcolormesh( vertices_even[:, 0].reshape(n_cells_y+1, n_cells_x+1), 
-                            vertices_even[:, 1].reshape(n_cells_y+1, n_cells_x+1), 
-                            phi_h_even.reshape(n_cells_y+1, n_cells_x+1))
-
-    # ax[0].axvline(x=0.5, color='r', linestyle='--', linewidth=1.5)
-    fig.colorbar(im0, ax=ax[0])
+    epsilon = 1e-6
+    u = numpy.array([1.0, 0.0])
+    # f = lambda points : numpy.array(list(map(lambda point : 1 if point[0] < 0.5 else -1, points)))
     
-    ax[1].set_title(f'Solution with N = {N+1}')
-    im1 = ax[1].pcolormesh( vertices_odd[:, 0].reshape(n_cells_y+2, n_cells_x+2), 
-                            vertices_odd[:, 1].reshape(n_cells_y+2, n_cells_x+2), 
-                            phi_h_odd.reshape(n_cells_y+2, n_cells_x+2))
-    fig.colorbar(im1, ax=ax[1])
+    # Make f the zero function
+    f = lambda points : numpy.zeros(points.shape[0])
 
-    # ax[1].axvline(x=0.5, color='r', linestyle='--', linewidth=1.5)
-    plt.savefig("approximation_assignment_2.png", dpi = 300)
+    vertices, phi_h = compute_solution(x_min, x_max, y_min, y_max, n_cells_x, n_cells_y, epsilon, u, f, SUPG=True)
+
+    plt.figure()
+    plt.pcolormesh(vertices[:, 0].reshape(n_cells_y+1, n_cells_x+1), 
+                   vertices[:, 1].reshape(n_cells_y+1, n_cells_x+1), 
+                   phi_h.reshape(n_cells_y+1, n_cells_x+1))  # plot the error
+    plt.colorbar()
+    plt.xlabel("x")
+    plt.ylabel("y")
+    plt.savefig("results/assignment_2_2d_supg_high_n_high_epsilon.png", dpi=300)
+    plt.show()
+
+    # make a 3d plot of the solution
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111, projection='3d')
+    # ax.plot_trisurf(vertices[:, 0], vertices[:, 1], phi_h, cmap='viridis', edgecolor='none')
+    # ax.set_xlabel('X')
+    # ax.set_ylabel('Y')
+    # ax.set_zlabel('phi_h')
+    # ax.set_title('3D plot of the solution')
+    # plt.show()
 
 
     # Calculate the solution on a fine mesh and plot
-    vertices_exact, phi_exact = compute_solution(x_min, x_max, y_min, y_max, 100, 100, epsilon, u, f)
-    plt.figure()
-    plt.pcolormesh( vertices_exact[:, 0].reshape(100+1, 100+1), 
-                    vertices_exact[:, 1].reshape(100+1, 100+1), 
-                    phi_exact.reshape(100+1, 100+1))  # plot the error
-    plt.colorbar()
-    plt.title("exact solution")
-    plt.savefig("exact_assignment_2.png", dpi=300)
+    # vertices_exact, phi_exact = compute_solution(x_min, x_max, y_min, y_max, 100, 100, epsilon, u, f)
+    # plt.figure()
+    # plt.pcolormesh( vertices_exact[:, 0].reshape(100+1, 100+1), 
+    #                 vertices_exact[:, 1].reshape(100+1, 100+1), 
+    #                 phi_exact.reshape(100+1, 100+1))  # plot the error
+    # plt.colorbar()
+    # plt.title("exact solution")
+    # plt.savefig("results/exact_assignment_2_2d.png", dpi=300)

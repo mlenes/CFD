@@ -499,7 +499,8 @@ def compute_forcing_term(f, vertices, cells, method, **kwargs):
 		A[-1, -1] = 1.0
 		F = A @ f
 
-		# I am fighting with the h term here. I have no idea why it is needed, but it is.
+		# The RHS uses a slightly modified quadrature rule to ensire the integral is exactly approximated
+		# We use the same one-point quadrature rule as for the LHS but use a weight factor of h.
 		F = h*F
 	elif method == "SUPG":
 		tau = kwargs.get('tau', -1)
@@ -516,17 +517,15 @@ def compute_forcing_term(f, vertices, cells, method, **kwargs):
 			f_at_cell_vertices = f(vertices[cell])
 			# The SUPG method adds a stabilization term to the RHS time. We approximate the integral of the stabilization term using
 			# two point quadrature, resulting in the below equation
-			F[cell] += 0.5 * f_at_cell_vertices * delta_x[cell_idx] + tau  * f_at_cell_vertices
+			stabilization_term = sum(1/2 * tau  * f_at_cell_vertices)
+			F[cell] += 0.5 * f_at_cell_vertices * delta_x[cell_idx] + numpy.array([-1,1])*stabilization_term
 
-			# Just like the one point quadrature method, multiplying by h makes it work. Fucked if I know why
-			F = h*F
 		
 	else:
 		raise ValueError(f"Unknown method {method} for the convection-diffusion equation")
 	
 	
 	return F
-
 
 def compute_solution(x_min, x_max, n_cells, epsilon, u, f, method):
 	r"""
@@ -612,7 +611,9 @@ def compute_solution(x_min, x_max, n_cells, epsilon, u, f, method):
 		epsilon = epsilon + artificial_diffusion
 
 		# The necessary stabilizing parameter is given below
-		tau = artificial_diffusion/(u**2)
+		# The stabilization is given by p = tau * u * w_h,x
+		# and we include the multiplication by u into our tau resulting in the following
+		tau = u*artificial_diffusion/(u**2)
 
 		# Compute the forcing term using using SUPG
 		F = compute_forcing_term(f, vertices, cells, "SUPG", tau = tau)
@@ -632,6 +633,8 @@ def compute_solution(x_min, x_max, n_cells, epsilon, u, f, method):
 
 	# Compute the right hand side
 	
+	if method == "one point quadrature":
+		A_global = A_global
 
 	# Include the boundary conditions
 	A_global[0, :] = 0.0
@@ -646,7 +649,7 @@ def compute_solution(x_min, x_max, n_cells, epsilon, u, f, method):
 	# \int_{x_n}^{x_n+1} B_n f dx - u\int_{x_n}^{x_n+1} B_n dB_{n+1}/dx dx + \epsilon \int_{x_n}^{x_n+1} dB_{n}/dx dx dB_{n+1}/dx dx  
 	# F[-2] += -u/2 + epsilon/(vertices[-1]-vertices[-2])
 
-	A_global = A_global
+	
 	# Solve the system
 	phi_h = scipy.sparse.linalg.spsolve(A_global, F)
 
@@ -663,7 +666,7 @@ if __name__ == "__main__":
 	# Define the right hand side of the equation
 	# solution 0 : use f = 0
 	# solution = 1 : use f as shown in the assignment
-	solution = 1
+	solution = 0
 
 
 	if solution == 0:
@@ -698,4 +701,4 @@ if __name__ == "__main__":
 		plt.title(f"Convection-Diffusion equation with $\\epsilon = {epsilon:.2f}$")
 		plt.legend()	
 		plt.savefig(f"results/assignment_1_2_image{3*solution + idx}.png", dpi = 300)
-		plt.close()
+		plt.show()
