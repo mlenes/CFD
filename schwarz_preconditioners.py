@@ -1,5 +1,5 @@
 import numpy as np
-
+from scipy.sparse.linalg import splu
 
 class OneLevelOASPreconditioner:
     def __init__(self, A, partition):
@@ -28,26 +28,32 @@ class OneLevelOASPreconditioner:
 
     def _get_local_subdomain_solver(self, i: int):
         # ************
-        # START HERE
+        Omega_i_ovlp = self.Omega_ovlp[i]
+        Ai = self.A[Omega_i_ovlp[:, None], Omega_i_ovlp]
+        Ai_lu = splu(Ai)
+        return Ai_lu
         # ************
         # Implement the initialization of the local solvers. Given the index of
         # the overlapping subdomain, construct a solver corresponding to the
         # submatrix related to the overlapping subdomain self.Omega_ovlp[i].
         # Hint: You did something similar in the previous assignment. See the code
         # for the SchwarzSolver class for reference.
-        pass
         # ************
 
     def apply(self, x):
         # ************
-        # START HERE
+        y = np.zeros_like(x)
+        for i in range(self.num_subdomains):
+            xi = x[self.Omega_ovlp[i]]
+            yi = self.local_solvers[i].solve(xi)
+            y[self.Omega_ovlp[i]] += yi
         # ************
         # Implement the application of the preconditioner to a vector x, represented
         # by a NumPy array.
         # This method implements the actual solutions on the overlapping subdomains,
         # i.e., the application of the operator
         # M^{-1} = \sum_{i = 1}^N R_i^T A_i^{-1} R_i.
-        pass
+        return y
         # ************
 
 
@@ -61,7 +67,7 @@ class TwoLevelOASPreconditioner(OneLevelOASPreconditioner):
             belongs or not the overlapping subdomain. If partition[i, j] = 1,
             then node j is in the overlapping subdomain Omega_i'.
             Phi (SciPy sparse matrix): A sparse matrix representing the prolongation
-            operator \Phi.
+            operator Phi.
         """
         super().__init__(A, partition)
         self.Phi = Phi

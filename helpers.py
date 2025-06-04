@@ -39,7 +39,7 @@ def assemble_fem_problem(n):
 
 
 def assemble_prolongation_operator(N, n):
-    """Assembles the prolongation operator \Phi that maps quantities from the
+    """Assembles the prolongation operator Phi that maps quantities from the
     coarse level to the original scale in the two-level Schwarz preconditioner.
 
     The grid dimensions N and n must be such that the ratio n / N is a power of 2.
