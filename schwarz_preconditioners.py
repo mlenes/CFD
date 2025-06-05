@@ -75,23 +75,29 @@ class TwoLevelOASPreconditioner(OneLevelOASPreconditioner):
 
     def _get_coarse_solver(self):
         # ************
-        # START HERE
+        K0 = self.Phi.T @ self.A @ self.Phi
+        K0_lu = splu(K0)
+        return K0_lu
         # ************
         # Implement the initialization of the coarse space solver.
         # Hint: This is similar to the method _get_local_subdomain_solver.
         # Here, the restriction/prolongation is done with the operator \Phi
         # (self.Phi) instead of indexing the global matrix.
-        pass
         # ************
 
     def apply(self, x):
         # ************
-        # START HERE
+        coarse_rhs = self.Phi.T @ x
+        coarse_sol = self.coarse_solver.solve(coarse_rhs)
+        y_coarse = self.Phi @ coarse_sol
+
+        y_fine = super().apply(x)
+
+        return y_course + y_fine
         # ************
         # Implement the application of the preconditioner to a vector x, represented
         # by a NumPy array.
         # Hint: Remember that the two-level method is the same as the one-level
         # preconditioner with the added coarse space solution. You have already
         # implemented the local solution in the OneLevelOASPreconditioner class.
-        pass
         # ************
