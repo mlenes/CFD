@@ -29,7 +29,7 @@ class OneLevelOASPreconditioner:
     def _get_local_subdomain_solver(self, i: int):
         # ************
         Omega_i_ovlp = self.Omega_ovlp[i]
-        Ai = self.A[Omega_i_ovlp[:, None], Omega_i_ovlp]
+        Ai = self.A[Omega_i_ovlp.reshape(-1,1), Omega_i_ovlp]
         Ai_lu = splu(Ai)
         return Ai_lu
         # ************
@@ -93,7 +93,7 @@ class TwoLevelOASPreconditioner(OneLevelOASPreconditioner):
 
         y_fine = super().apply(x)
 
-        return y_course + y_fine
+        return y_coarse + y_fine
         # ************
         # Implement the application of the preconditioner to a vector x, represented
         # by a NumPy array.
