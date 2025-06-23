@@ -28,6 +28,8 @@ def stokes_solver(X, b, method = {"direct, ilu"}):
 	from scipy.sparse.linalg import gmres, LinearOperator, spsolve, inv
 	from scipy.sparse import csc_matrix
 
+	print("starting stokes solver")
+
 	def preconditioner(A, B, M, method = {"direct, ilu"}):
 		"""
 		Construct a block preconditioner for the stokes problem defined by
@@ -72,7 +74,7 @@ def stokes_solver(X, b, method = {"direct, ilu"}):
 		elif method == "ilu":
 			from scipy.sparse.linalg import spilu
 	
-			A_inv = spilu(A).solve
+			A_inv = spilu(csc_matrix(A)).solve
 	
 			# We have to calculate A_inv(B.T) column by column using the solve method
 			# Make a sparse matrix like B.T in X
@@ -83,6 +85,7 @@ def stokes_solver(X, b, method = {"direct, ilu"}):
 	
 			# Calculate the schur complement and the effect of its inverse on a vector
 			S_op = M - B @ A_inv_BT
+
 			S_inv = spilu(csc_matrix(S_op)).solve
 	
 			def apply_preconditioner(v):
@@ -112,8 +115,9 @@ def stokes_solver(X, b, method = {"direct, ilu"}):
 		Callback function to print the current iteration number and residual norm.
 		"""
 		nonlocal iterations
-		if (iterations % 100 == 0):
-			print(f"Iteration {iterations}, Residual norm: {pr_norm:.2e}")
+
+		# if (iterations % 100 == 0):
+			# print(f"\t Iteration {iterations}, Residual norm: {pr_norm:.2e}")
 	
 		iterations += 1
 	
@@ -166,7 +170,7 @@ if __name__ == "__main__":
 	# Solve the Stokes problem using the GMRESSolver
 	# for a small example
 	n = 40
-	lam = 10e8
+	lam = 100
 	
 	X, b = assemble_system(n, lam)  # Example assembly, replace with actual matrices
 	
@@ -183,15 +187,15 @@ if __name__ == "__main__":
 	plot_results(u_x, u_y, p, n=n, lam=lam)
 
 	# Plot the divergence of the velocity field
-	import numpy as np
-	import matplotlib.pyplot as plt
-	divergence = np.gradient(u_x, axis=0) + np.gradient(u_y, axis=1)
-	plt.figure(figsize=(6, 6))
-	plt.imshow(divergence, extent=(0, 1, 0, 1), cmap='viridis', origin='lower') 
-	plt.colorbar(label='Divergence')
-	plt.title('Divergence of Velocity Field')
-	plt.tight_layout()
-	plt.show()
+	# import numpy as np
+	# import matplotlib.pyplot as plt
+	# divergence = np.gradient(u_x, axis=0) + np.gradient(u_y, axis=1)
+	# plt.figure(figsize=(6, 6))
+	# plt.imshow(divergence, extent=(0, 1, 0, 1), cmap='viridis', origin='lower') 
+	# plt.colorbar(label='Divergence')
+	# plt.title('Divergence of Velocity Field')
+	# plt.tight_layout()
+	# plt.show()
 
 	# We know that the analytic results are given by
 	# u1_exact = x**2*(1-x)**2*(2*y-8*y**3+6*y**5)
