@@ -148,8 +148,10 @@ def navier_stokes_solver(n, lam, method = {'direct, ilu'}):
 	residual = residual - N_u_m @ full_solution
 	norm_residual = np.linalg.norm(residual)
 	print(f"Initial Navier stokes residual norm: {norm_residual:.6e}")
+	navier_iterations = 1
 	try:
 		while norm_residual > 1e-6:
+			navier_iterations += 1
 			print(f"Navier stokes residual norm: {norm_residual:.6e}")
 			print()
 			# We now want to solve the linear system with matrix
@@ -175,22 +177,31 @@ def navier_stokes_solver(n, lam, method = {'direct, ilu'}):
 			# Add the residual corresponding to the nonlinear component of Navier Stokes
 			residual = residual - N_u_m @ full_solution
 			norm_residual = np.linalg.norm(residual)
-	
 	except KeyboardInterrupt:
 		from gmres_solver import plot_results
 		print("Solver interrupted, returning current solution.")
-
 		plot_results(u_x, u_y, p)
 
 		# Exit the system
 		exit(0)
 
+	print(f"Navier stokes solver converged after {navier_iterations} iterations.")
 	return u_x, u_y, p
 
 if __name__ == "__main__":
-	ux, uy, p = navier_stokes_solver(32, 10e8, method = "ilu")
+	# ux, uy, p = navier_stokes_solver(128, 10e8, method = "ilu")
 
-	from gmres_solver import plot_results
-	plot_results(ux, uy, p)
+	# from gmres_solver import plot_results
+	# plot_results(ux, uy, p)
 
+	import numpy as np
+	import matplotlib.pyplot as plt
+	N_array = np.array([1,2,4,8,16,32,64])
+	iterations = np.array([1,1,4,12,9,10,9])
 
+	plt.plot(N_array, iterations, marker='v')
+	plt.xlabel('Number of Cells (n)')
+	plt.ylabel('Number of Picard Iterations')
+	plt.title('Convergence of Navier Stokes Solver')
+	plt.savefig("results/navier_solver_convergence.png", dpi=400)
+	plt.show()

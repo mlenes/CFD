@@ -52,7 +52,7 @@ def stokes_solver(X, b, method = {"direct, ilu"}):
 		if method == "direct":
 			# We only need the effect of our inverses on vectors, so we can use linearoperator classes from scipy
 			# For A we also need the effect on matrices to calculate the schur complement
-			A_inv = LinearOperator(A.shape, matvec=lambda x: spsolve(A, x), matmat=lambda X: spsolve(A, X))
+			A_inv = LinearOperator(A.shape, matvec=lambda x: spsolve(A, x), matmat=lambda X: spsolve(A, csc_matrix(X) ))
 		
 			# Calculate the Schur complement S = M - B @ A_inv_B
 			A_inv_B = A_inv.matmat(B.T)
@@ -110,19 +110,24 @@ def stokes_solver(X, b, method = {"direct, ilu"}):
 
 	# Define the callback function to monitor progress
 	iterations = 0
+
 	def callback(pr_norm):
 		"""
 		Callback function to print the current iteration number and residual norm.
 		"""
 		nonlocal iterations
 
-		# if (iterations % 100 == 0):
-			# print(f"\t Iteration {iterations}, Residual norm: {pr_norm:.2e}")
+		if (iterations % 10 == 0):
+			print(f"\t Iteration {iterations}, Residual norm: {pr_norm:.2e}")
 	
 		iterations += 1
 	
+	
 	solution , _ = gmres(X, b, M = P_inv, callback=callback, restart  = 100)
 	
+	print()
+	print(f"solution converged, total iterations : {iterations}")
+
 	# Split the solutions up into their three components
 	u_x = solution[0 : (n+1)**2].reshape((n+1, n+1))
 	u_y = solution[(n+1)**2 : 2*(n+1)**2].reshape((n+1, n+1))
@@ -130,7 +135,7 @@ def stokes_solver(X, b, method = {"direct, ilu"}):
 
 	return u_x, u_y, p
 
-def plot_results(u_x, u_y, p, n = None, lam = None, file = None):
+def plot_results(u_x, u_y, p, lam = None, file = None):
 	# plot the results
 	import matplotlib.pyplot as plt
 	
@@ -161,32 +166,46 @@ def plot_results(u_x, u_y, p, n = None, lam = None, file = None):
 	plt.tight_layout()
 
 	if file is not None:
-		plt.savefig(file, dpi = '400')
+		plt.savefig(file, dpi = 400)
 
 	plt.show()
 
 
 if __name__ == "__main__":
+	print()
 	# Solve the Stokes problem using the GMRESSolver
 	# for a small example
 	n = 40
-	lam = 100
+	lam = 10e8
 	
 	X, b = assemble_system(n, lam)  # Example assembly, replace with actual matrices
 	
 	# Ensure the matrix A is in csc format for efficient column operations
 	X = X.tocsc()
 
-	u_x, u_y, p = stokes_solver(X, b, method = "ilu")
+	# u_x, u_y, p = stokes_solver(X, b, method = "direct")
 	
-	# Pass a smoother function over P to remove oscillations
-	# from scipy.ndimage import gaussian_filter
-	
-	# p = gaussian_filter(p, sigma=1)
-	# Plot the results
-	plot_results(u_x, u_y, p, n=n, lam=lam)
 
-	# Plot the divergence of the velocity field
+
+	######## Plot smoothed version of the pressure
+	# Pass a smoother function over P to remove oscillations
+	# import matplotlib.pyplot as plt
+	# from scipy.ndimage import gaussian_filter
+
+	# # p = gaussian_filter(p, sigma=1)
+	# # plt.figure()
+	# # plt.imshow(p, extent=(0, 1, 0, 1), cmap='viridis', origin='lower')
+	# # plt.colorbar(label='Pressure p')
+	# # plt.title(f'Smoothed Pressure p')
+	# # plt.tight_layout()
+	# # plt.savefig(f"results/smoothed_pressure_gmres_solver_{n}.png", dpi=400)
+	# # plt.show()
+
+	########## Plot the main results
+	# Plot the results
+	# plot_results(u_x, u_y, p)
+
+	########## Plot the divergence of the velocity field
 	# import numpy as np
 	# import matplotlib.pyplot as plt
 	# divergence = np.gradient(u_x, axis=0) + np.gradient(u_y, axis=1)
@@ -195,14 +214,16 @@ if __name__ == "__main__":
 	# plt.colorbar(label='Divergence')
 	# plt.title('Divergence of Velocity Field')
 	# plt.tight_layout()
+	# plt.savefig("results/divergence_velocity_field.png", dpi=400)
 	# plt.show()
 
-	# We know that the analytic results are given by
-	# u1_exact = x**2*(1-x)**2*(2*y-8*y**3+6*y**5)
-	# u2_exact = -y**2*(1-y)**2*(2*x-8*x**3+6*x**5)
-	# p_exact = x*(1-x)
+	########## Plot the exact results
+	# # We know that the analytic results are given by
+	# # u1_exact = x**2*(1-x)**2*(2*y-8*y**3+6*y**5)
+	# # u2_exact = -y**2*(1-y)**2*(2*x-8*x**3+6*x**5)
+	# # p_exact = x*(1-x)
 
-	# so lets plot these as well.
+	# # so lets plot these as well.
 	# import numpy as np
 	# x = np.linspace(0, 1, n + 1)
 	# y = np.linspace(0, 1, n + 1)
@@ -210,5 +231,27 @@ if __name__ == "__main__":
 	# u1_exact = X**2 * (1 - X)**2 * (2 * Y - 8 * Y**3 + 6 * Y**5)
 	# u2_exact = -Y**2 * (1 - Y)**2 * (2 * X - 8 * X**3 + 6 * X**5)
 	# p_exact = X * (1 - X)
-	# Plot the exact solutions
-	# plot_results(u1_exact, u2_exact, p_exact, n=n, lam=lam)
+	# # # Plot the exact solutions
+	# plot_results(u1_exact, u2_exact, p_exact, file = f"results/gmres_solver_exact.png")
+
+	############# Plot the (manually gathered) convergence results
+
+	# import matplotlib.pyplot as plt
+	# import numpy as np
+
+	# nr_cells = np.array([1,2,4,8,16,32,40,50,60,64,70])
+	# iters_direct = np.array([0,2,13,15,15,17,19,19,25,21,25])
+	# iters_ilu = np.array([0,2,13,15,19,67,75,68,72,76,78])
+
+	# Plot the convergence results
+	# plt.figure(figsize=(8, 6))
+	# plt.plot(nr_cells, iters_direct, marker='v', label='Direct Solver')
+	# plt.plot(nr_cells, iters_ilu, marker='s', label='ILU Solver')
+	# plt.xscale('log')
+	# plt.yscale('log')
+	# plt.xlabel('Number of Cells (n)')
+	# plt.ylabel('Number of Iterations')
+	# plt.title('Convergence of GMRES Solver')
+	# plt.legend()
+	# plt.savefig("results/gmres_sovler_convergence.png", dpi=400)
+	# plt.show()

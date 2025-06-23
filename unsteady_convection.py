@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 
 import matplotlib.animation as animation
 
-from math import floor
+from math import floor, ceil
 
 def generate_mesh(x_min, x_max, n_cells):
 	"""Generates a uniform mesh of n_cells on the interval [x_min, x_max].
@@ -446,7 +446,7 @@ def compute_SUPG_solution(x_min, x_max, n_cells, phi, tau, u, timestep, boundary
 	n_cells : int
 		The number of cells of the mesh.
 	phi: np.array(float) size [n]
-		Array specifying the solution at time t
+		Array specifying the solution at time 0
 	tau : float
 		The stabilization parameter.
 
@@ -460,7 +460,7 @@ def compute_SUPG_solution(x_min, x_max, n_cells, phi, tau, u, timestep, boundary
 	"""
 
 	# Intialize the solution matrix
-	solution = numpy.zeros((floor(end_time/timestep),n_cells+1), dtype =numpy.float64)
+	solution = numpy.zeros((ceil(end_time/timestep)+1,n_cells+1), dtype =numpy.float64)
 
 	# Specify the initial solution
 	solution[0, :] = phi
@@ -472,18 +472,22 @@ def compute_SUPG_solution(x_min, x_max, n_cells, phi, tau, u, timestep, boundary
 	M_mass_global = compute_global_mass_matrix(vertices, cells)
 	M_convection_global = compute_global_convection_matrix(vertices, cells)
 	M_stifness_global = compute_global_stifness_matrix(vertices, cells)
+
+	M_convection_global_trans = M_convection_global.transpose()
 	
 	# Construct the matrix A for the equation
 	# 	A phi(t+1) = B phi(t)
 	LHS_mat = M_mass_global \
-			+ (timestep/2*u + tau*u)*M_convection_global \
-			+ timestep/2*tau*u**2 *M_stifness_global
+			+ tau * u * M_convection_global_trans \
+			+ timestep/2*u*M_convection_global \
+			+ timestep/2*tau*(u**2) *M_stifness_global
 
 	# Construct the matrix B for the equation
 	# 	A phi(t+1) = B phi(t)
 	RHS_mat = M_mass_global \
-			- (u*timestep/2-tau*u)*M_convection_global \
-			+ timestep/2*tau*u**2 *M_stifness_global
+			+ tau * u * M_convection_global_trans \
+			- u*timestep/2*M_convection_global \
+			- timestep/2*tau*(u**2) *M_stifness_global
 
 	# Ensure the boundary stays satisfied
 	LHS_mat[0, :] = 0.0
@@ -521,8 +525,9 @@ def assignment1(show = False):
 		phi_0[i] = initial_solution(x_min + i*h)
 
 
-	courant_numbers = [1, 0.1, 0.01] 
-	for courant_number in courant_numbers:
+	courant_numbers = [0.5, 0.05, 0.005] 
+	# plt.figure(figsize=(12, 4))
+	for idx, courant_number in enumerate(courant_numbers):
 		delta_t = h*courant_number/u
 		phi_upwind, vertices = compute_SUPG_solution(x_min, x_max, n_cells, phi = phi_0, tau = 0, u=u, timestep = delta_t, boundary=0, end_time = 1)
 		phi_SUPG, vertices = compute_SUPG_solution(x_min, x_max, n_cells, phi = phi_0, tau = tau, u=u, timestep = delta_t, boundary=0, end_time = 1)
@@ -534,61 +539,125 @@ def assignment1(show = False):
 			phi_0_exact[i] = initial_solution(x_min + i*(x_max-x_min)/n_exact)
 	
 		phi_exact, vertices_exact = compute_SUPG_solution(x_min, x_max, n_cells = n_exact, phi = phi_0_exact, tau = tau, u=u, timestep = delta_t, boundary=0, end_time = 1)
-	
+		print(delta_t, phi_SUPG.shape)
 		if show:
-			def animate(i):
-				"""Animation function to plot the solution at each time step."""
-				ax.clear()
-				ax.set_title("SUPG method")
-				ax.set_xlabel("x")
-				ax.set_ylabel("phi")
-				ax.set_xlim(x_min, x_max)
-				ax.set_ylim(-0.5, 1.5)
-				ax.set_xticks(vertices)
-				ax.set_xticklabels([round(x, 2) for x in vertices])
-				ax.grid()
-		
-				# Plot the SUPG solution
-				ax.plot(vertices, phi_SUPG[i, :], label="SUPG solution", color="red", linestyle = '-')
-				
-				# Plot the upwind solution
-				ax.plot(vertices, phi_upwind[i, :], label="Upwind solution", color="blue", linestyle = '-.')
-				
-				# Plot the exact solution
-				ax.plot(vertices_exact, phi_exact[i, :], label="Exact solution", color="black", linestyle = ":")
-		
-				ax.legend()
-				return ax
+			# # Plot the solution at the last time step
+			plt.figure(figsize=(8, 4))
+			plt.xlabel("x")
+			plt.ylabel("phi")
+			plt.xlim(x_min, x_max)
+			plt.ylim(-0.5, 1.5)
+			plt.xticks(vertices)
+			plt.grid()
+
+			plt.title(f"Solutions at time {(phi_SUPG.shape[0]-1)*delta_t:.2f} for Courant number {courant_number}")
+
+			# Plot a vertical line at the line x = (phi_supg.shape[0]-1)*delta_t
+			plt.axvline(x=1+(phi_SUPG.shape[0]-1)*delta_t, color='gray', linestyle='--', label='Time step')
 			
-			# # Create an animation of the upwind and SUPG methods evolving through time
-			fig, ax = plt.subplots(1, 1, figsize=(8, 4))
-			
-			# We want the video to be 3 seconds everytime
-			# print(interval, phi_SUPG.shape[0])
-			ani = animation.FuncAnimation(fig, animate, frames=phi_SUPG.shape[0], interval= 1, blit=False, repeat = False)
-			
+			# Plot the SUPG solution
+			plt.plot(vertices, phi_SUPG[-1, :], label="SUPG solution", color="red", linestyle = '-')
+	
+			# Plot the upwind solution
+			plt.plot(vertices, phi_upwind[-1, :], label="Upwind solution", color="blue", linestyle = '-.')
+	
+			# Plot the exact solution
+			plt.plot(vertices_exact, phi_exact[-1, :], label="Exact solution", color="black", linestyle = ":")
+	
+			plt.legend()
+			plt.savefig(f"results/courant_{courant_number}.png")
 			plt.show()
-
-		# Plot the solution at the last time step
-		plt.figure(figsize=(8, 4))
-		plt.xlabel("x")
-		plt.ylabel("phi")
-		plt.xlim(x_min, x_max)
-		plt.ylim(-0.5, 1.5)
-		plt.xticks(vertices)
-		plt.grid()
+			plt.close()
+			# def animate(i):
+			# 	"""Animation function to plot the solution at each time step."""
+			# 	ax.clear()
+			# 	ax.set_title("SUPG method")
+			# 	ax.set_xlabel("x")
+			# 	ax.set_ylabel("phi")
+			# 	ax.set_xlim(x_min, x_max)
+			# 	ax.set_ylim(-0.5, 1.5)
+			# 	ax.set_xticks(vertices)
+			# 	ax.set_xticklabels([round(x, 2) for x in vertices])
+			# 	ax.grid()
 		
-		# Plot the SUPG solution
-		plt.plot(vertices, phi_SUPG[-1, :], label="SUPG solution", color="red", linestyle = '-')
+			# 	# Plot the SUPG solution
+			# 	ax.plot(vertices, phi_SUPG[i, :], label="SUPG solution", color="red", linestyle = '-')
+				
+			# 	# Plot the upwind solution
+			# 	ax.plot(vertices, phi_upwind[i, :], label="Upwind solution", color="blue", linestyle = '-.')
+				
+			# 	# Plot the exact solution
+			# 	ax.plot(vertices_exact, phi_exact[i, :], label="Exact solution", color="black", linestyle = ":")
+		
+			# 	ax.legend()
+			# 	return ax
+			
+			# # # Create an animation of the upwind and SUPG methods evolving through time
+			# fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+			
+			# # We want the video to be 3 seconds everytime
+			# # print(interval, phi_SUPG.shape[0])
+			# ani = animation.FuncAnimation(fig, animate, frames=phi_SUPG.shape[0], interval= 1, blit=False, repeat = False)
+			
+			# plt.show()
 
-		# Plot the upwind solution
-		plt.plot(vertices, phi_upwind[-1, :], label="Upwind solution", color="blue", linestyle = '-.')
+		# Make a plot featuring the solutions at the last time step for each courant number
+		# This should be a subplot with 3 plots, only show at the end of the for loop
+		
 
-		# Plot the exact solution
-		plt.plot(vertices_exact, phi_exact[-1, :], label="Exact solution", color="black", linestyle = ":")
+	# 	plt.subplot(1, 3, idx+1)
+	# 	plt.xlabel("x")
+	# 	plt.ylabel("phi")
+	# 	plt.xlim(x_min, x_max)
+	# 	plt.ylim(-0.5, 1.5)
+	# 	plt.xticks(vertices)
+	# 	plt.grid()
+	# 	# Plot the SUPG solution
+	# 	plt.plot(vertices, phi_SUPG[-1, :], label="SUPG solution", color="red", linestyle = '-')
+	# 	# Plot the upwind solution
+	# 	plt.plot(vertices, phi_upwind[-1, :], label="Upwind solution", color="blue", linestyle = '-.')
+	# 	# Plot the exact solution
+	# 	plt.plot(vertices_exact, phi_exact[-1, :], label="Exact solution", color="black", linestyle = ":")
+	# 	plt.legend()
+	# 	plt.title(f"Solutions for Courant number {courant_number}")
 
-		plt.legend()
-		plt.savefig(f"results/courant_{courant_number}.png")
+	# plt.tight_layout()
+	# plt.show()
+
+
+
+
 
 if __name__ == "__main__":
-	assignment1(True)
+	N_plot = 100  # resolution for visualization
+	import numpy as np
+	import matplotlib.pyplot as plt
+	from ngsolve import *
+
+	xs = np.linspace(0, 1, N_plot)
+	ys = np.linspace(0, 1, N_plot)
+	XX, YY = np.meshgrid(xs, ys)
+	
+	vel_x = np.zeros((N_plot, N_plot))
+	vel_y = np.zeros((N_plot, N_plot))
+	p_vals = np.zeros((N_plot, N_plot))
+	
+	for i in range(N_plot):
+	    for j in range(N_plot):
+	        xx, yy = XX[i, j], YY[i, j]
+	        vx, vy = gfu(xx, yy)
+	        vel_x[i, j] = vx
+	        vel_y[i, j] = vy
+	        p_vals[i, j] = gfp(xx, yy)
+	
+	speed = np.sqrt(vel_x*2 + vel_y*2)
+	
+	# === Plot Velocity Field ===
+	plt.figure(figsize=(7.5, 6))
+	plt.streamplot(xs, ys, vel_x, vel_y, color=speed, cmap='viridis', density=2)
+	plt.colorbar(label='Velocity magnitude')
+	plt.title("Velocity Field (Sampled)")
+	plt.xlabel("x")
+	plt.ylabel("y")
+	plt.axis('tight')
+	plt.show()
